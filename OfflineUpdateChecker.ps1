@@ -1,13 +1,5 @@
 
 <#
-	.NOTES
-    ===========================================================================
-    Created on:   	12.2023
-    Created by:   	Hydrophobia
-    Filename:     	OfflineUpdateChecker.ps1
-    Last Modified Date: 3.22.2024
-    ===========================================================================
-
     .DISCLAIMER:
     By using this content you agree to the following: This script may be used for legal purposes only. Users take full responsibility 
     for any actions performed using this script. The author accepts no liability for any damage caused by this script.  
@@ -26,10 +18,10 @@
     https://www.catalog.update.microsoft.com/Home.aspx
 	
     .PARAMETER cabpath
-    -cabpath {pathtocabfile}: Enter the path where you are storing the most recent wsusscn2.cab file. it's best to have this file local since it is relatively large.
+    Enter the path where you are storing the most recent wsusscn2.cab file. it's best to have this file local since it is relatively large.
 
     .PARAMETER LogBackupPath
-    -LogBackupPath {remotepathtobackuplogs}: if you want to backup your log files to a remote server for consolidation/review use this parameter
+    If you want to backup your log files to a remote server for consolidation/review use this parameter
 
     .EXAMPLE
     Open an administrator powershell terminal and either navigate to the location of the script or copy the full path to the script and run it in the powershell terminal.
@@ -42,14 +34,23 @@
     In this example logs would be created here: C:\Updates\logs\2024\01\Results\ and C:\Updates\logs\2024\01\RunLogs\
     Then logs will be backed up here: \\server01\logs\UpdateScans\2024\01\Computername\
 
-    .CHANGELOG
-    3.22.2024 - switched script to use parameters rather than editable variables in the script. Simplified some repetative path usage.
-    1.3.2024 - Added the ability to copy logs and results to a network location
-    1.3.2024 - Added additional notes and descriptions
+    .NOTES
+    Created by: KaijuLogic
+    Created Date: 12.2023
+    Last Modified Date: 16 Nov 2025
+    Last Modified By: KaijuLogic
+    Last Modification Notes: 
+        16.11.2025
+            - Added parameter validation
+            - Simplifying parameters, try-catches in folder creation.
+        3.22.2024 - switched script to use parameters rather than editable variables in the script. Simplified some repetative path usage.
+        1.3.2024 - Added the ability to copy logs and results to a network location
+        1.3.2024 - Added additional notes and descriptions
 
-    .TO-DO 
-    Setup to allow script to auto grab the most recent wsusscn2.cab file from a network location and copy it locally.        
-    Information for automating with Task Scheduler
+	.TODO
+        Setup to allow script to auto grab the most recent wsusscn2.cab file from a network location and copy it locally.        
+        Information for automating with Task Scheduler
+
 #>
 
 #################################### Parameters ###################################
@@ -57,6 +58,13 @@
 [CmdletBinding()]
 param (
 	[Parameter(Mandatory)]
+    [ValidateScript({
+        if (Test-Path $_ -PathType Leaf) {
+            return $True
+        } else {
+            Exit
+        }
+    })]
 	[String]$CabPath,
 	[Parameter()]
 	[String]$LogBackupPath
@@ -65,14 +73,10 @@ param (
 #N/A for this script
 #################################### SET COMMON VARIABLES ###################################
 $CertificateIssuer = "CN=Microsoft Code Signing PCA 2011, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
-$User = $Env:UserName
-$Computer = $Env:ComputerName
 $CurrentDate = Get-Date
-$global:CurrentPath = split-path -Parent $PSCommandPath
-$ResultPath = $CurrentPath + "\Logs\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\Results\"
-$RunPath = $CurrentPath + "\Logs\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\RunLogs\"
-$logfile = $RunPath + "UpdateCheck-RunLog-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm.ss")).txt"
-$ResultLog = $ResultPath + "MissingUpdates-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm.ss")).txt"
+$CurrentPath = split-path -Parent $PSCommandPath
+$logfile = Join-path $CurrentPath -ChildPath "\Logs\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\RunLogs\UpdateCheck-RunLog-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm")).txt"
+$ResultLog = Join-path $CurrentPath -ChildPath "\Logs\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\Results\MissingUpdates-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm")).txt"
 $sw = [Diagnostics.Stopwatch]::StartNew()
 
 #################################### FUNCTIONS #######################################
@@ -93,7 +97,7 @@ Function Write-Log{
         [string]
         $logfile
     )
-    $Stamp = (Get-Date).ToString($TimeStampFormat)
+    $Stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     $Line = "$Stamp | $Level | $Message"
     Add-content $logfile -Value $Line -Force
 }
@@ -149,29 +153,31 @@ Function Get-MissingUpdates{
 #Creates necessary log folders and path if they do not already exist to allow for logs to be created. 
 Function Set-LogFolders {
     ##Tests for and creates necessary folders and files for the script to run and log appropriately
-    $global:LogFolder = $CurrentPath + "\Logs\"
+    $LogFolder = Split-Path $logfile -Parent
     if (!(Test-Path $LogFolder)) {
-        Write-Output "$LogFolder \Logs does not exist, creating path"
-        New-Item -Path $LogFolder -ItemType "directory" | out-null
-        if (Test-Path $LogFolder){
-            Write-Output "$LogFolder created successfully"
+        Write-Verbose "$LogFolder \Logs does not exist, creating path"
+        try{
+            New-Item -Path $LogFolder -ItemType "directory" | out-null
         }
-        else {
-            Write-Output "Error creating path: $LogFolder maybe try manual creation?"
+        catch{
+            Write-Warning "Issue Creating $LogFolder. ERROR: $($_.ErrorDetails.Message)"
         }
     }
-    if (!(Test-Path "$RunPath")) {
-		New-Item -Path "$RunPath" -ItemType "directory" | out-null
-    }
-    if (!(Test-Path $ResultPath)) {
-		New-Item -Path $ResultPath -ItemType "directory" | out-null
+    $LogFolder = Split-Path $ResultLog -Parent
+    if (!(Test-Path $LogFolder)) {
+		try{
+            New-Item -Path $LogFolder -ItemType "directory" | out-null
+        }
+        catch{
+            Write-Warning "Issue Creating $LogFolder. ERROR: $($_.ErrorDetails.Message)"
+        }
     }
 }
 #################################### EXECUTION #####################################
 
 Set-LogFolders
 
-Write-Log -level INFO -message "Windows update checks ran by $User on $Computer" -logfile $logfile
+Write-Log -level INFO -message "Windows update checks ran by $Env:UserName on $Env:Computer" -logfile $logfile
 
 Get-CABSignature
 
@@ -182,6 +188,6 @@ Write-Output "Total time to check for updates $($sw.elapsed)"
 Write-Log -level INFO -message "Total time to check for updates $($sw.elapsed)." -logfile $logfile
 
 If ($LogBackupPath){
-	$LogBackupPath = $LogBackupPath + "\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\$Computer\"
+	$LogBackupPath = Join-Path -path $LogBackupPath -ChildPath "\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\$Env:Computer\"
 	robocopy /E /R:2 /W:10 /V /NDL /NFL "$CurrentPath\Logs\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\"* $LogBackupPath | Out-Null
 }
