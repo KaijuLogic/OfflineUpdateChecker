@@ -43,16 +43,17 @@
         16.11.2025
             - Added parameter validation
             - Simplifying parameters, try-catches in folder creation.
+            - added Requires -RunAsAdministrator
+            - additional try-catches in update checking process
         3.22.2024 - switched script to use parameters rather than editable variables in the script. Simplified some repetative path usage.
         1.3.2024 - Added the ability to copy logs and results to a network location
         1.3.2024 - Added additional notes and descriptions
 
 	.TODO
-        Setup to allow script to auto grab the most recent wsusscn2.cab file from a network location and copy it locally.        
-        Information for automating with Task Scheduler
+
 
 #>
-
+#Requires -RunAsAdministrator
 #################################### Parameters ###################################
 
 [CmdletBinding()]
@@ -69,17 +70,15 @@ param (
 	[Parameter()]
 	[String]$LogBackupPath
 )
-################################# EDITABLE VARIABLES #################################
-#N/A for this script
-#################################### SET COMMON VARIABLES ###################################
+############################## SET COMMON VARIABLES ################################
 $CertificateIssuer = "CN=Microsoft Code Signing PCA 2011, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
 $CurrentDate = Get-Date
 $CurrentPath = split-path -Parent $PSCommandPath
-$logfile = Join-path $CurrentPath -ChildPath "\Logs\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\RunLogs\UpdateCheck-RunLog-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm")).txt"
-$ResultLog = Join-path $CurrentPath -ChildPath "\Logs\$($CurrentDate.ToString("yyyy"))\$($CurrentDate.ToString("MM"))\Results\MissingUpdates-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm")).txt"
+$RunLog = Join-path $CurrentPath -ChildPath "\Logs\$($CurrentDate.ToString("yyyy-MM"))\RunLogs\UpdateCheck-RunLog-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm")).txt"
+$ResultLog = Join-path $CurrentPath -ChildPath "\Logs\$($CurrentDate.ToString("yyyy-MM"))\Results\MissingUpdates-$($CurrentDate.ToString("yyyy-MM-dd_HH.mm")).txt"
 $sw = [Diagnostics.Stopwatch]::StartNew()
 
-#################################### FUNCTIONS #######################################
+################################### FUNCTIONS ######################################
 #Function allows a detail log to be created for troubleshooting purposes and review. 
 Function Write-Log{
     [CmdletBinding()]
@@ -128,48 +127,55 @@ Function Get-CABSignature{
 Function Get-MissingUpdates{
     #Create Update Session
     Write-Log -level INFO -message "Creating Update Session" -logfile $logfile
-    $UpdatesSession = New-Object -ComObject Microsoft.Update.Session
-    $UpdateServiceManager = New-Object -ComObject Microsoft.Update.ServiceManager
-    $UpdateService = $UpdateServiceManager.AddScanPackageService("Offline Sync Service",$CabPath, 1)
-    #Creating Windows Update Searcher
-    Write-Log -level INFO -message "Creating Windows Update Searcher" -logfile $logfile
-    $UpdateSearcher = $UpdatesSession.CreateUpdateSearcher()
-    $UpdateSearcher.ServerSelection = 3
-    $UpdateSearcher.ServiceID = $UpdateService.ServiceID.ToString()
+    Try{
+        $UpdatesSession = New-Object -ComObject Microsoft.Update.Session
+        $UpdateServiceManager = New-Object -ComObject Microsoft.Update.ServiceManager
+        $UpdateService = $UpdateServiceManager.AddScanPackageService("Offline Sync Service",$CabPath, 1)
+        #Creating Windows Update Searcher
+        Write-Log -level INFO -message "Creating Windows Update Searcher" -logfile $logfile
+        $UpdateSearcher = $UpdatesSession.CreateUpdateSearcher()
+        $UpdateSearcher.ServerSelection = 3
+        $UpdateSearcher.ServiceID = $UpdateService.ServiceID.ToString()
+    }
+    catch{
+        Write-Warning "Something went wrong setting up an update sesstion. ERROR: $($_.ErrorDetails.Message)"
+		Write-Log -level WARN -message "Something went wrong setting up an update sesstion. ERROR: $($_.ErrorDetails.Message)" -logfile $logfile
+    }
     #Check for missing updates on the system
     Write-Warning "Checking for updates, please be patient this may take a while..."
-    $SearchResult = $UpdateSearcher.Search("IsInstalled=0")
-	Write-Log -level INFO -message "Update scan started..." -logfile $logfile
-    $Updates = $SearchResult.updates
-    Write-Output "$($Updates.Count) updates missing on $Computer : Run Date $CurrentDate" | Tee-Object -FilePath $ResultLog -Append
-	Write-Log -level INFO -message "$($Updates.Count) updates missing on $Computer : Run Date $CurrentDate" -logfile $logfile
-	#Getting relavant info and outputting to run log, terminal, and results log
-    Foreach($update in $Updates){
-		Write-Log -level INFO -message "$($update | Select-Object Title, MsrcSeverity, @{ Name = "KBArticleIDs"; Expression = { $_.KBArticleIDs } })" -logfile $logfile
-	}
-    Write-Output $($Updates | Select-Object Title,MsrcSeverity, @{Name="KBArticleIDs";Expression={$_.KBArticleIDs}} | Format-Table -Property @{Name="Title";Expression={$_.Title};Width=70},MsrcSeverity, @{Name="KBArticleIDs";Expression={$_.KBArticleIDs}} -Wrap) | Tee-Object -FilePath $ResultLog -Append  
+    try{
+        $SearchResult = $UpdateSearcher.Search("IsInstalled=0")
+        Write-Log -level INFO -message "Update scan started..." -logfile $logfile
+        $Updates = $SearchResult.updates
+        $Message = "$($Updates.Count) updates missing on $Computer : Run Date $CurrentDate"
+        Write-Output $Message | Tee-Object -FilePath $ResultLog -Append
+        Write-Log -level INFO -message $Message -logfile $logfile
+    	#Getting relavant info and outputting to run log, terminal, and results log
+        Foreach($update in $Updates){
+		    Write-Log -level INFO -message "$($update | Select-Object Title, MsrcSeverity, @{ Name = "KBArticleIDs"; Expression = { $_.KBArticleIDs } })" -logfile $logfile
+	    }
+        Write-Output $($Updates | Select-Object Title,MsrcSeverity, @{Name="KBArticleIDs";Expression={$_.KBArticleIDs}} | Format-Table -Property @{Name="Title";Expression={$_.Title};Width=70},MsrcSeverity, @{Name="KBArticleIDs";Expression={$_.KBArticleIDs}} -Wrap) | Tee-Object -FilePath $ResultLog -Append 
+    }
+    catch{
+        Write-Warning "Something went wrong srunning the update search. ERROR: $($_.ErrorDetails.Message)"
+		Write-Log -level WARN -message "Something went wrong srunning the update search. ERROR: $($_.ErrorDetails.Message)" -logfile $logfile
+    }
 }
 
 #Creates necessary log folders and path if they do not already exist to allow for logs to be created. 
 Function Set-LogFolders {
     ##Tests for and creates necessary folders and files for the script to run and log appropriately
-    $LogFolder = Split-Path $logfile -Parent
-    if (!(Test-Path $LogFolder)) {
-        Write-Verbose "$LogFolder \Logs does not exist, creating path"
-        try{
-            New-Item -Path $LogFolder -ItemType "directory" | out-null
-        }
-        catch{
-            Write-Warning "Issue Creating $LogFolder. ERROR: $($_.ErrorDetails.Message)"
-        }
-    }
-    $LogFolder = Split-Path $ResultLog -Parent
-    if (!(Test-Path $LogFolder)) {
-		try{
-            New-Item -Path $LogFolder -ItemType "directory" | out-null
-        }
-        catch{
-            Write-Warning "Issue Creating $LogFolder. ERROR: $($_.ErrorDetails.Message)"
+    $FolderList = ($RunLog,$ResultLog)
+    foreach ($Folder in $Folderlist){
+        $LogFolder = Split-Path $Folder -Parent
+        if (!(Test-Path $LogFolder)) {
+            Write-Verbose "$LogFolder does not exist, creating path"
+            try{
+                New-Item -Path $LogFolder -ItemType "directory" | out-null
+            }
+            catch{
+                Write-Warning "Issue Creating $LogFolder. ERROR: $($_.ErrorDetails.Message)"
+            }
         }
     }
 }
