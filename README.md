@@ -19,10 +19,10 @@
  -LogBackupPath {remotepathtobackuplogs}: if you want to backup your log files to a remote server for consolidation/review use this parameter
 
 ### EXAMPLE
- C:\Path\to\updatescript\OfflineUpdateChecker.ps1 -cabpath c:\Updates\wsusscn2.cab
+ C:\Path\to\updatescript\OfflinePatchAudit.ps1 -cabpath c:\Updates\wsusscn2.cab
  In this example logs would be created here: C:\Path\to\updatescript\Logs\2024\01\Results and C:\Path\to\updatescript\Logs\2024\01\RunLogs
 
 ### EXAMPLE
- C:\Updates\OfflineUpdateChecker.ps1 -cabpath c:\Updates\wsusscn2.cab -LogBackupPath \\\server01\logs\UpdateScans
+ C:\Updates\OfflinePatchAudit.ps1 -cabpath c:\Updates\wsusscn2.cab -LogBackupPath \\\server01\logs\UpdateScans
  In this example logs would be created here: C:\Updates\logs\2024\01\Results\ and C:\Updates\logs\2024\01\RunLogs\
  Then logs will be backed up here: \\\server01\logs\UpdateScans\2024\01\Computername\
