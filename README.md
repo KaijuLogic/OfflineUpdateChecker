@@ -19,17 +19,10 @@
  -LogBackupPath {remotepathtobackuplogs}: if you want to backup your log files to a remote server for consolidation/review use this parameter
 
 ### EXAMPLE
-
- Open an administrator powershell terminal and either navigate to the location of the script or copy the full path to the script and run it in the powershell terminal.
  C:\Path\to\updatescript\OfflineUpdateChecker.ps1 -cabpath c:\Updates\wsusscn2.cab
  In this example logs would be created here: C:\Path\to\updatescript\Logs\2024\01\Results and C:\Path\to\updatescript\Logs\2024\01\RunLogs
 
 ### EXAMPLE
-
- Open an administrator powershell terminal and either navigate to the location of the script or copy the full path to the script and run it in the powershell terminal.
  C:\Updates\OfflineUpdateChecker.ps1 -cabpath c:\Updates\wsusscn2.cab -LogBackupPath \\\server01\logs\UpdateScans
  In this example logs would be created here: C:\Updates\logs\2024\01\Results\ and C:\Updates\logs\2024\01\RunLogs\
  Then logs will be backed up here: \\\server01\logs\UpdateScans\2024\01\Computername\
-
-
- I like to write little scripts that make SysAdmin lives easier. If you like what I do consider supporting me! https://www.buymeacoffee.com/hydrophobia
